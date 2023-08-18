@@ -1,6 +1,7 @@
 #!/bin/sh
 
 mv /root/.bashrc /root/.bashrc.bak
+
 tee -a /root/.bashrc <<EOF
 
 # .bashrc
