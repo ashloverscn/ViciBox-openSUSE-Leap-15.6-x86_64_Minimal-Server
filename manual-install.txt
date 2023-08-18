@@ -1,0 +1,167 @@
+#####################################################################################################
+systemctl disable firewalld
+systemctl stop firewalld
+
+cat /etc/sysctl.d/70-yast.conf
+echo "" > /etc/sysctl.d/70-yast.conf
+sed -i -e '$a\
+\
+net.ipv4.ip_forward = 0 \
+net.ipv6.conf.all.forwarding = 0 \
+net.ipv6.conf.all.disable_ipv6 = 1 \
+' /etc/sysctl.d/70-yast.conf
+
+systemctl restart network
+service network restart
+
+sed -i 's/quiet//g' /etc/default/grub
+sed -i 's/splash=silent/splash=verbose/g' /etc/default/grub
+sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/g' /etc/default/grub
+grub2-mkconfig -o /boot/grub2/grub.cfg
+
+sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
+
+########################################################################################################
+zypper rr --all
+## set openSUSE-Leap release version of os  
+releasever=$(grep -oP '(?<=^VERSION_ID=).+' /etc/os-release | tr -d '"')
+## important update and dirtribution repo
+zypper ar http://mirrorcache-us.opensuse.org/update/leap/$releasever/sle/ openSUSE-Leap-15.3-SLE-15-Update
+zypper ar http://mirrorcache-us.opensuse.org/update/leap/$releasever/backports/ openSUSE-Leap-15.3-Backports-Update
+zypper ar http://mirrorcache-us.opensuse.org/update/leap/$releasever/oss/ openSUSE-Leap-15.3-Oss-Update
+zypper ar http://mirrorcache-us.opensuse.org/update/leap/$releasever/non-oss/ openSUSE-Leap-15.3-Non-Oss-Update
+zypper ar http://mirrorcache-us.opensuse.org/distribution/leap/$releasever/repo/oss/ openSUSE-Leap-15.3-Oss
+zypper ar http://mirrorcache-us.opensuse.org/distribution/leap/$releasever/repo/non-oss/ openSUSE-Leap-15.3-Non-Oss
+## vicibox vicidial and support repo
+#zypper ar http://mirrorcache-us.opensuse.org/repositories/devel:/languages:/perl/openSUSE_Leap_15.3/ openSUSE-Leap-15.3-PERL
+zypper ar http://mirrorcache-us.opensuse.org/repositories/devel:/languages:/perl/15.4/ openSUSE-Leap-15.4-PERL
+zypper ar http://mirrorcache-us.opensuse.org/repositories/home:/vicidial/openSUSE_Leap_15.3/ openSUSE-Leap-15.3-ViciDial
+zypper ar http://mirrorcache-us.opensuse.org/repositories/home:/vicidial:/asterisk-13/openSUSE_Leap_15.3/ openSUSE-Leap-15.3-ViciDial-Ast13
+#zypper ar http://mirrorcache-us.opensuse.org/repositories/home:/vicidial:/asterisk-16/openSUSE_Leap_15.3/ openSUSE-Leap-15.3-ViciDial-Ast16
+zypper ar http://mirrorcache-us.opensuse.org/repositories/home:/vicidial:/vicibox/openSUSE_Leap_15.3/ openSUSE-Leap-15.3-ViciDial-ViciBox
+zypper ar http://mirrorcache-us.opensuse.org/repositories/devel:/languages:/php/openSUSE_Leap_15.4/ openSUSE-Leap-15.4-PHP-Applications
+zypper ar http://mirrorcache-us.opensuse.org/repositories/home:/zippy:/jx:/packages-ready/openSUSE_Leap_15.3/ openSUSE_Leap_15.3-zippy-jx
+## refresh and trust repo keys and update
+zypper --gpg-auto-import-keys ref
+
+########################################################################################################
+cd /usr/src
+
+zypper in -y libjansson4-2.14
+
+#stock packages list 
+wget https://raw.githubusercontent.com/ashloverscn/ViciBox-openSUSE-Leap-15.3.3-x86_64_Minimal-Server/main/installed-pkgs_vicibox10.0.2_stock
+
+#stock packages list with some extra manualy added packages
+wget https://raw.githubusercontent.com/ashloverscn/ViciBox-openSUSE-Leap-15.3.3-x86_64_Minimal-Server/main/installed-pkgs_vicibox10.0.2_stockoscratch
+
+#rpm -qa --qf "%{NAME}\n" > installed-pkgs_vicibox10.0.2_stock
+
+cat installed-pkgs_vicibox10.0.2_stock | xargs zypper in
+
+reboot
+
+##############################################################
+zypper ref
+zypper up -y 
+reboot
+
+##############################################################
+#generate ssl self-signed certificates
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/apache2/ssl.key/vicibox.key -out /etc/apache2/ssl.crt/vicibox.crt
+
+##############################################################
+mkdir /usr/src/astguiclient
+cd /usr/src/astguiclient
+#svn checkout -r 3657 svn://svn.eflo.net:3690/agc_2-X/trunk
+#svn checkout svn://svn.eflo.net/agc_2-X/trunk
+svn checkout svn://svn.eflo.net:3690/agc_2-X/trunk
+cd /usr/src/astguiclient/trunk
+
+################################################################
+vicibox-express
+
+zypper ref 
+zypper up
+
+############ here the installation is complete ###############
+##############################################################
+
+############ mariadb and apache2 repair (not starting) ################
+
+systemctl stop mariadb.service
+
+rm -rf /etc/my.cnf.d
+rm -rf /etc/my.cnf
+
+zypper rm -y mariadb
+zypper in -y mariadb vicibox-install
+
+systemctl disable mariadb.service
+systemctl enable mariadb.service
+systemctl start mariadb.service
+systemctl restart mariadb.service
+
+mysql -uroot -e "DROP DATABASE IF EXISTS asterisk;"
+
+systemctl stop mariadb.service
+systemctl disable mariadb.service
+
+
+##############################################################
+systemctl stop apache2.service
+
+rm -rf /etc/apache2
+
+zypper rm -y patterns-server-lamp_server apache2 apache2-mod_php7 apache2-prefork vicibox-dynportal
+zypper in -y patterns-server-lamp_server apache2 apache2-mod_php7 apache2-prefork #vicibox-dynportal
+a2enmod php7
+
+systemctl disable apache2.service
+systemctl enable apache2.service
+systemctl start apache2.service
+systemctl restart apache2.service
+systemctl stop apache2.service
+systemctl disable apache2.service
+
+##############################################################
+#allow asterisk to to update audio store with self-signed certificate
+cd /usr/share/astguiclient/
+sed -i 's/wgetbin -q/wgetbin --no-check-certificate -q/g' ADMIN_audio_store_sync.pl
+
+#configure ssl certificate path and state
+mv /etc/apache2/vhosts.d/1111-default-ssl.conf /etc/apache2/vhosts.d/1111-default-ssl.conf.bak
+mv /etc/apache2/vhosts.d/1111-default.conf /etc/apache2/vhosts.d/1111-default.conf.bak
+\cp -r /usr/src/etc/apache2/vhosts.d/1111-default-ssl.conf /etc/apache2/vhosts.d/1111-default-ssl.conf
+\cp -r /usr/src/etc/apache2/vhosts.d/1111-default.conf /etc/apache2/vhosts.d/1111-default.conf
+
+nano /etc/apache2/vhosts.d/1111-default-ssl.conf
+
+SSLEngine on
+SSLCertificateFile /etc/apache2/ssl.crt/vicibox.crt
+SSLCertificateKeyFile /etc/apache2/ssl.key/vicibox.key
+
+#configure ssl redirect path and port
+nano /etc/apache2/vhosts.d/1111-default.conf
+
+DocumentRoot /srv/www/htdocs
+Redirect permanent / https://164.132.124.180/
+
+#sed -i 's/#Listen 80/Listen 80/g' /etc/apache2/listen.conf
+sed -i 's/#Listen 443/Listen 443/g' /etc/apache2/listen.conf
+
+service apache2 restart
+
+################################################################
+mysql -uroot -e "DROP DATABASE IF EXISTS asterisk;"
+
+vicibox-express
+
+zypper ref 
+zypper up
+
+#################################################################
+cd /usr/src
+mysql -uroot asterisk < backup_complete_settings.sql
+mysql -u root -f asterisk < /usr/src/astguiclient/trunk/extras/upgrade_2.14.sql
+/usr/share/astguiclient/ADMIN_update_server_ip.pl --debugX --old-server_ip=192.168.201.129
