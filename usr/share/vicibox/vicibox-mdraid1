@@ -1,0 +1,199 @@
+#!/bin/bash
+# Parts of script submitted/stolen from mariusmarais on forums at eflo.net
+#
+# This does a mostly automated setup to get a full linux software raid array installed.
+# It's only a RAID-1 setup but with most modern SSDs, even SATA SSDs, this is plenty
+# for your average ViciDial setup. The only real exeption to this would be a larger
+# database which is almost always going to be a custom build with dedicated disks.
+#
+
+
+### Thank opensuse for assinign sd5 to md4 for this weird cross-section of a partition layout
+# TODO: Detect these automatically?
+EFI_PART="2"
+SWAP_PART="3"
+ROOT_PART="4"
+SWAP_ARRAY="/dev/md1"
+ROOT_ARRAY="/dev/md2"
+LOG_FILE="/tmp/vicibox-md.log"
+
+# Go somewhere safe
+cd /tmp
+
+### These definitely stolen from Marius
+function commentLine {
+	local file="$1"
+	local search="$(echo "$2" | sed -e 's/[]\/$*.^[]/\\&/g')"   # escape sed search keyword https://stackoverflow.com/a/2705678  
+	sed -i "s/^.*${search}/#&/g" "$file"
+}
+function uuidFor {
+	blkid -s UUID -o value "$1"
+}
+
+# Sanity checks
+if [ -e $SWAP_ARRAY ]; then
+	echo "  Proposed swap array already in use at $SWAP_ARRAY! Was this already done?"
+	echo "  This script cannot safely be run so exiting."
+	exit 2
+fi
+if [ ! -e $ROOT_ARRAY ]; then
+	echo "  Root array not detected at $ROOT_ARRAY!"
+	echo "  This script only works with the Vicibox v.11.0 MDRAID edition."
+	exit 2
+fi
+
+
+# Usage: ./vicibox-mdraid1 /dev/sda /dev/sdb
+DISK1="${1:-/dev/sda}"
+DISK2="${2:-/dev/sdb}"
+echo "  It is recommended to reboot at least once prior to running this script."
+echo "  If you have any issues running this script, it's recommended to wipe the"
+echo "  drives clean and then reinstall from the ISO. The drives can be wiped by"
+echo "  running the following commands prior to reinstalling :"
+echo "     wipefs -fa $DISK1"
+echo "     wipefs -fa $DISK2"
+echo
+if [ "$DISK1" = "" -o "$DISK2" = "" -o "$DISK1" = "$DISK2" ]; then
+	echo "  Source and Target disks not specified!"
+	echo ""
+	echo "  Usage: $0 /dev/sda /dev/sdb"
+	echo ""
+	exit 2
+else
+	echo "  ViciBox v.11.0 Linux MD RAID1 array setup:"
+	echo "    Swap Array: $SWAP_ARRAY from $DISK1$SWAP_PART and $DISK2$SWAP_PART"
+	echo "    Root Array: $ROOT_ARRAY from $DISK1$ROOT_PART and $DISK2$ROOT_PART"
+	echo
+	echo "  Log File: $LOG_FILE"
+	echo
+fi
+
+# Standard disclaimer and point of last return
+echo
+echo "  This script will DESTROY ALL DATA on $DISK2 and modify $DISK1."
+echo "  This is irrecoverable and permanent!"
+read -r -p "   Do you want to continue? [y/N] " response
+if [[ ! "${response,,}" =~ ^(yes|y)$ ]]; then
+	exit 3
+fi
+echo
+
+# Setup log file
+echo "ViciBox v.11.0 Linux MD RAID1 array setup:" >> $LOG_FILE
+echo "  Swap Array: $SWAP_ARRAY from $DISK1$SWAP_PART and $DISK2$SWAP_PART" >> $LOG_FILE
+echo "  Root Array: $ROOT_ARRAY from $DISK1$ROOT_PART and $DISK2$ROOT_PART" >> $LOG_FILE
+echo >> $LOG_FILE
+
+# More sanity checks
+if [ -e "/dev/md126" ]; then
+	echo "  Old MDRAID partitions detected on $DISK2!"
+	read -r -p "    Do you want to remove these and clean the drive? [y/N] " response
+	if [[ ! "${response,,}" =~ ^(yes|y)$ ]]; then
+		echo
+		echo " Please disable any running RAID arrays before continuing."
+		exit
+	else
+		echo "Cleaning old MD-RAID arrays off $DISK2:" >> $LOG_FILE
+		for f in /dev/md12*; do
+			echo -n "    Disabling $f..."
+			echo "  Disabling $f" >> $LOG_FILE
+			mdadm --stop $f >>$LOG_FILE 2>&1
+			echo "done."
+		done
+		echo -n "  Removing MD metadata from $f..."
+		mdadm --zero-superblock $f >>$LOG_FILE 2>&1
+		echo "done."
+		echo -n "  Wiping the rest of $DISK2... "
+		wipefs -af $DISK2  >>$LOG_FILE 2>&1 # Clear partition table just because
+		echo "done."
+		echo
+		echo "  It is recommended to reboot the server prior to continuing."
+	fi
+fi
+echo "" >> $LOG_FILE
+echo "" >> $LOG_FILE
+echo
+
+# Clone partitions
+echo -n "  Partitioning $DISK2... "
+echo "--- Partitioning $DISK2 from $DISK1" >> $LOG_FILE
+wipefs -af $DISK2 >>$LOG_FILE 2>&1 # Clear partition table just because
+sgdisk "$DISK2" --zap-all >>$LOG_FILE 2>&1
+sgdisk "$DISK1" --replicate="$DISK2" --randomize-guids >>$LOG_FILE 2>&1
+# Stale md arrays, weird linux stuff from previous installs, etc
+# So just shut them down if they pop up
+for f in /dev/md12*; do
+	mdadm --stop $f >> $LOG_FILE 2>&1
+done
+echo "done."
+
+# Until Linux comes up with a better way to handle redundant EFI partitions, we cheat and do this
+echo -n "  Cloning EFI parition... "
+umount /boot/efi  >>$LOG_FILE 2>&1
+dd if=${DISK1}${EFI_PART} of=${DISK2}${EFI_PART}  >>$LOG_FILE 2>&1
+mount /boot/efi  >>$LOG_FILE 2>&1
+echo "done."
+
+# Do swap
+echo -n "  Setting up swap array $SWAP_ARRAY... "
+echo "--- Setting up swap array $SWAP_ARRAY" >>$LOG_FILE
+# Migrate swap to RAID1 to prevent system crashes from disk failure
+if [ -e "$SWAP_ARRAY" ]; then
+	mdadm --stop $SWAP_ARRAY  >>$LOG_FILE 2>&1
+fi
+swapoff -a  >>$LOG_FILE 2>&1
+mdadm --zero-superblock "${DISK1}${SWAP_PART}" >>$LOG_FILE 2>&1
+mdadm --zero-superblock "${DISK2}${SWAP_PART}" >>$LOG_FILE 2>&1
+mdadm --create --force "$SWAP_ARRAY" --level=1 --raid-devices=2 --metadata=1.2 "${DISK1}${SWAP_PART}" "${DISK2}${SWAP_PART}" >>$LOG_FILE 2>&1
+mkswap -f "$SWAP_ARRAY" >>$LOG_FILE 2>&1
+commentLine /etc/fstab 'swap' >>$LOG_FILE 2>&1
+echo "UUID=$(uuidFor "$SWAP_ARRAY") swap swap defaults 0 0" >> /etc/fstab
+swapon -a >>$LOG_FILE 2>&1
+echo "done."
+
+
+# Setup root last because it takes the longest to replicate and has the most database
+# It's also on the boot drive so it is least critical as far as rebooting goes
+echo -n "  Adding ${DISK2}${ROOT_PART} to root array $ROOT_ARRAY... "
+echo "--- Adding ${DISK2}${ROOT_PART} to root array $ROOT_ARRAY" >> $LOG_FILE
+mdadm --zero-superblock "${DISK2}${ROOT_PART}" >>$LOG_FILE 2>&1
+mdadm --add "$ROOT_ARRAY" "${DISK2}${ROOT_PART}" >>$LOG_FILE 2>&1
+mdadm --detail --scan > /etc/mdadm.conf
+sed -i '/INACTIVE/d' /etc/mdadm.conf
+echo "done."
+
+# Install bootloader
+echo -n "  Installing grub boot loader..."
+echo "--- Installing bootloader and creating initrd" >> $LOG_FILE
+grub2-mkconfig -o /boot/grub2/grub.cfg >>$LOG_FILE 2>&1
+mkinitrd >>$LOG_FILE 2>&1
+grub2-install "$DISK1" >>$LOG_FILE 2>&1
+grub2-install "$DISK2" >>$LOG_FILE 2>&1
+echo "done."
+echo
+
+
+# Show the RAID arrays rebuilding and give output
+read -r -p "Do you want to wait until the arrays rebuild? (Y/n) : " response
+if [[ "${response,,}" =~ ^(yes|y)$ ]]; then
+	local arrays="$(cat /proc/mdstat | grep 'blocks' --count)"
+	while [ ! "$(cat /proc/mdstat | grep '\[UU\]' --count)" = "$arrays" ]; do
+		clear
+		echo "RAID arrays not synced yet, current status:"
+		echo
+		cat /proc/mdstat
+		echo
+		echo "    --   To proceed without waiting on arrays to rebuild, press CTRL-C   --"
+		echo "    --   Server should be rebooted to verify RAID is booting correctly   --"
+		sleep 5
+	done
+fi
+
+
+
+
+
+
+
+
+
