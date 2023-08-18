@@ -1,6 +1,6 @@
 #!/bin/sh
 
-mv /root/.bashrc /root/.bashrc.bak
+\cp -r /root/.bashrc /root/.bashrc.bak
 
 tee -a /root/.bashrc <<EOF
 
