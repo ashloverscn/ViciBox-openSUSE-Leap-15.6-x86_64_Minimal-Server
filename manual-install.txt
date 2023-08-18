@@ -1,3 +1,4 @@
+########################################################################################################
 #zypper rm -y firewalld
 zypper in -y firewalld
 systemctl enable firewalld
