@@ -25,7 +25,7 @@ export PATH="/root/perl5/bin:$PATH";
 
 EOF
 
-mv /etc/motd /etc/motd.bak
+\cp -r /etc/motd /etc/motd.bak
 \cp -r /usr/src/motd /etc/motd
 
 cat /etc/ssh/sshd_config | grep "#PrintMotd yes"
