@@ -1,5 +1,5 @@
-#yum -y remove firewalld
-yum -y install firewalld
+#zypper rm -y firewalld
+zypper in -y firewalld
 systemctl enable firewalld
 
 rm -rf /etc/firewalld.bak/
