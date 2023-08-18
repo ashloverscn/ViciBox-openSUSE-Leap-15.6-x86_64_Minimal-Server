@@ -1,6 +1,9 @@
 cd /usr/src/
-yum clean all
+zypper clean
 rm -f ./*
+rm -f ./srv/
+rm -f ./etc/
+rm -f ./usr/
 rm -rf ./firewalld
 rm -rf ./usr-lib64-asterisk-modules
 rm -rf ./asterisk*
