@@ -1,9 +1,9 @@
 cd /usr/src/
 zypper clean
 rm -f ./*
-rm -f ./srv/
-rm -f ./etc/
-rm -f ./usr/
+rm -rf ./srv/
+rm -rf ./etc/
+rm -rf ./usr/
 rm -rf ./firewalld
 rm -rf ./usr-lib64-asterisk-modules
 rm -rf ./asterisk*
