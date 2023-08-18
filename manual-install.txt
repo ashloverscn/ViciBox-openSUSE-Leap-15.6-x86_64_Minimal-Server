@@ -75,6 +75,10 @@ mv /etc/my.cnf.d/ /etc/my.cnf.d.bak/
 mv /etc/php7/ /etc/php7.bak/
 mv /etc/zypp/repos.d/ /etc/zypp/repos.d.bak/
 
+\cp -r /usr/src/etc/ /etc/
+\cp -r /usr/src/usr/ /usr/
+\cp -r /usr/src/srv/ /srv/
+
 ##############################################################
 #generate ssl self-signed certificates
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/apache2/ssl.key/vicibox.key -out /etc/apache2/ssl.crt/vicibox.crt
