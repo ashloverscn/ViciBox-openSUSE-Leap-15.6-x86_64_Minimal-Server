@@ -2,7 +2,7 @@
 	ServerAdmin support@vicibox.local
 	ServerName vici120.go2dial.com
 	DocumentRoot /srv/www/htdocs
-	Redirect permanent / https://45.142.112.120/
+	#Redirect permanent / https://164.132.124.180/
 	ErrorLog /var/log/apache2/error_log
 	CustomLog /var/log/apache2/access_log combined
 	#CustomLog /dev/null combined
