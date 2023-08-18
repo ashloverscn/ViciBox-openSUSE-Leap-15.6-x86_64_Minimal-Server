@@ -36,7 +36,7 @@ zypper ref
 
 zypper install -y wget git unzip
 
-wget -O ./ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server.zip https://github.com/ashloverscn/ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server.git
+wget -O ./ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server.zip https://github.com/ashloverscn/ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server/archive/refs/heads/main.zip
 
 unzip ./ViciBox-openSUSE-Leap-*
 
