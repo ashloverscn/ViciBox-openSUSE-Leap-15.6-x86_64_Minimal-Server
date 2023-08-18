@@ -1,0 +1,8 @@
+[openSUSE-Leap-15.5-OSS]
+enabled = 1
+autorefresh = 1
+baseurl = https://download.opensuse.org/distribution/leap/15.5/repo/oss/
+keeppackages = 1
+repo_gpgcheck = 0
+pkg_gpgcheck = 0
+
