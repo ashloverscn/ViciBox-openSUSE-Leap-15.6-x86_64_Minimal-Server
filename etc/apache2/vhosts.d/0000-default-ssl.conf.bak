@@ -1,3 +1,5 @@
+Listen 443 https
+
 <VirtualHost _default_:443>
 	ServerAdmin support@vicibox.local
 	ServerName vici120.go2dial.com
