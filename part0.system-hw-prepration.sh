@@ -25,8 +25,8 @@ service network restart
 echo -e "\e[0;32m Configure vicibox firewalld with xml config files \e[0m"
 sleep 2
 
-#yum -y remove firewalld
-#yum -y install firewalld
+#zypper rm -y firewalld
+#zypper in -y firewalld
 systemctl enable firewalld
 
 rm -rf /etc/firewalld.bak/
