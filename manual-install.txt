@@ -50,14 +50,11 @@ cd /usr/src
 zypper in -y libjansson4-2.14
 
 #stock packages list 
-wget https://raw.githubusercontent.com/ashloverscn/ViciBox-openSUSE-Leap-15.3.3-x86_64_Minimal-Server/main/installed-pkgs_vicibox10.0.2_stock
+wget https://github.com/ashloverscn/ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server/raw/main/ViciBox-v11.0.1.pkg
 
-#stock packages list with some extra manualy added packages
-wget https://raw.githubusercontent.com/ashloverscn/ViciBox-openSUSE-Leap-15.3.3-x86_64_Minimal-Server/main/installed-pkgs_vicibox10.0.2_stockoscratch
+#rpm -qa --qf "%{NAME}\n" > ViciBox-v11.0.1.pkg
 
-#rpm -qa --qf "%{NAME}\n" > installed-pkgs_vicibox10.0.2_stock
-
-cat installed-pkgs_vicibox10.0.2_stock | xargs zypper in
+cat ViciBox-v11.0.1.pkg | xargs zypper in
 
 reboot
 
