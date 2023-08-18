@@ -8,8 +8,8 @@ mv /etc/firewalld/ /etc/firewalld.bak/
 mv /usr/lib/firewalld/ /usr/lib/firewalld.bak/
 mkdir /etc/firewalld/
 mkdir /usr/lib/firewalld/
-\cp -r /usr/src/firewalld/etc-firewalld/* /etc/firewalld/ 
-\cp -r /usr/src/firewalld/usr-lib-firewalld/* /usr/lib/firewalld/
+\cp -r /usr/src/etc/firewalld/* /etc/firewalld/ 
+\cp -r /usr/src/usr/lib/firewalld/* /usr/lib/firewalld/
 
 systemctl start firewalld
 systemctl status firewalld
