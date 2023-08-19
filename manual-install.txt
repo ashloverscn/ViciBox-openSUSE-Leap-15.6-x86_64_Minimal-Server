@@ -99,21 +99,21 @@ svn checkout svn://svn.eflo.net:3690/agc_2-X/trunk
 cd /usr/src/astguiclient/trunk
 
 ################################################################
-systemctl disable apache2
-systemctl disable mariadb
-systemctl disable asterisk
-systemctl disable dahdi
+systemctl disable apache2.service
+systemctl disable mariadb.service
+systemctl disable asterisk.service
+systemctl disable dahdi.service
 
-systemctl enable apache2
-systemctl enable mariadb
-systemctl enable asterisk
-systemctl enable dahdi
+systemctl enable apache2.service
+systemctl enable mariadb.service
+systemctl enable asterisk.service
+systemctl enable dahdi.service
 
-systemctl start apache2
-systemctl start mariadb
-systemctl start asterisk
+systemctl start apache2.service
+systemctl start mariadb.service
+systemctl start asterisk.service
 modprobe dahdi
-systemctl start dahdi
+systemctl start dahdi.service
 
 ################################################################
 vicibox-express
