@@ -1,3 +1,24 @@
+#################################################################################
+cd /usr/src
+
+zypper ref
+
+zypper install -y wget git unzip
+
+wget -O ./ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server.zip https://github.com/ashloverscn/ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server/archive/refs/heads/main.zip
+
+unzip ./ViciBox-openSUSE-Leap-*
+
+rm -rf ./ViciBox-openSUSE-Leap-*.zip
+
+mv ./ViciBox-openSUSE-Leap-*/* ./
+
+rm -rf ./ViciBox-openSUSE-Leap-*
+
+chmod +x *.sh
+
+pwd
+
 ########################################################################################################
 #zypper rm -y firewalld
 zypper in -y firewalld
