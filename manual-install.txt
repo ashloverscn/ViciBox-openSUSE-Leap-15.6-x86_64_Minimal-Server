@@ -22,7 +22,7 @@ pwd
 ########################################################################################################
 #zypper rm -y firewalld
 zypper in -y firewalld
-systemctl enable firewalld
+systemctl enable firewalld.service
 
 rm -rf /etc/firewalld.bak/
 rm -rf /usr/lib/firewalld.bak/
@@ -33,7 +33,7 @@ mkdir /usr/lib/firewalld/
 \cp -r /usr/src/etc/firewalld/* /etc/firewalld/ 
 \cp -r /usr/src/usr/lib/firewalld/* /usr/lib/firewalld/
 
-systemctl start firewalld
+systemctl start firewalld.service
 firewall-cmd --reload
 
 #####################################################################################################
