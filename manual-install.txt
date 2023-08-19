@@ -117,9 +117,6 @@ systemctl start dahdi.service
 ################################################################
 vicibox-express
 
-zypper ref 
-zypper up
-
 ################################################################
 cd /etc/apache2/vhosts.d/
 sed -i 's/Redirect permanent \/ https:\/\/.*/Redirect permanent \/ https:\/\/New_IP\//g' 0000-default.conf
