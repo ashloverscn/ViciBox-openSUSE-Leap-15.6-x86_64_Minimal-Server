@@ -48,7 +48,7 @@ zypper in -y libjansson4
 zypper in -y firewalld firewalld-lang libjansson4 libnftables1 nftables vicibox-firewall
 
 #stock packages list 
-wget https://github.com/ashloverscn/ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server/raw/main/ViciBox-v11.0.1.pkg
+#wget https://github.com/ashloverscn/ViciBox-openSUSE-Leap-15.5-x86_64_Minimal-Server/raw/main/ViciBox-v11.0.1.pkg
 
 #rpm -qa --qf "%{NAME}\n" > ViciBox-v11.0.1.pkg
 
