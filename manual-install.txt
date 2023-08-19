@@ -82,7 +82,7 @@ zypper up
 ################################################################
 cd /etc/apache2/vhosts.d/
 sed -i 's/Redirect permanent \/ https:\/\/.*/Redirect permanent \/ https:\/\/New_IP\//g' 0000-default.conf
-cat 1111-default.conf
+cat 0000-default.conf
 cd ~
 
 ############ here the installation is complete ###############
