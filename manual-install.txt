@@ -76,6 +76,11 @@ cd /usr/src/astguiclient/trunk
 ################################################################
 vicibox-express
 
+systemctl enable apache2
+systemctl enable mariadb
+systemctl enable asterisk
+systemctl enable dahdi
+
 zypper ref 
 zypper up
 
@@ -85,7 +90,7 @@ sed -i 's/Redirect permanent \/ https:\/\/.*/Redirect permanent \/ https:\/\/New
 sed -i 's/#Redirect permanent \/ https:\/\/.*/Redirect permanent \/ https:\/\/New_IP\//g' 0000-default.conf
 cat 0000-default.conf
 cd ~
-systemctl restart apache2.service
+systemctl restart apache2
 
 ############ here the installation is complete ###############
 ##############################################################
