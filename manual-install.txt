@@ -34,7 +34,6 @@ mkdir /usr/lib/firewalld/
 \cp -r /usr/src/usr/lib/firewalld/* /usr/lib/firewalld/
 
 systemctl start firewalld
-#systemctl status firewalld
 firewall-cmd --reload
 
 #####################################################################################################
