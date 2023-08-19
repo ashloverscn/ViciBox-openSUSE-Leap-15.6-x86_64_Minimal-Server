@@ -51,7 +51,7 @@ mv /etc/zypp/repos.d/ /etc/zypp/repos.d.bak/
 zypper rr --all
 
 mv /etc/apache2/ /etc/apache2.bak/
-mv /etc/firewalld/ /etc/firewalld.bak/
+#mv /etc/firewalld/ /etc/firewalld.bak/
 mv /etc/my.cnf.d/ /etc/my.cnf.d.bak/
 mv /etc/php7/ /etc/php7.bak/
 
