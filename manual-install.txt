@@ -74,12 +74,13 @@ svn checkout svn://svn.eflo.net:3690/agc_2-X/trunk
 cd /usr/src/astguiclient/trunk
 
 ################################################################
-vicibox-express
-
 systemctl enable apache2
 systemctl enable mariadb
 systemctl enable asterisk
 systemctl enable dahdi
+
+################################################################
+vicibox-express
 
 zypper ref 
 zypper up
