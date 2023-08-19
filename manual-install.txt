@@ -47,13 +47,13 @@ grub2-mkconfig -o /boot/grub2/grub.cfg
 sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
 
 ########################################################################################################
+mv /etc/zypp/repos.d/ /etc/zypp/repos.d.bak/
 zypper rr --all
 
 mv /etc/apache2/ /etc/apache2.bak/
 mv /etc/firewalld/ /etc/firewalld.bak/
 mv /etc/my.cnf.d/ /etc/my.cnf.d.bak/
 mv /etc/php7/ /etc/php7.bak/
-mv /etc/zypp/repos.d/ /etc/zypp/repos.d.bak/
 
 \cp -r /usr/src/etc/* /etc/
 \cp -r /usr/src/usr/* /usr/
