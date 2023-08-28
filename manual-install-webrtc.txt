@@ -6,13 +6,13 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/apache2/ssl.key
 cd /usr/share/astguiclient/
 sed -i 's/wgetbin -q/wgetbin --no-check-certificate -q/g' ADMIN_audio_store_sync.pl
 
-nano /etc/apache2/vhosts.d/1111-default-ssl.conf
+nano /etc/apache2/vhosts.d/0000-default-ssl.conf
 
 SSLEngine on
 SSLCertificateFile /etc/apache2/ssl.crt/vicibox.crt
 SSLCertificateKeyFile /etc/apache2/ssl.key/vicibox.key
 
-nano /etc/apache2/vhosts.d/1111-default.conf
+nano /etc/apache2/vhosts.d/0000-default.conf
 
 DocumentRoot /srv/www/htdocs
 Redirect permanent / https://164.132.124.180/
