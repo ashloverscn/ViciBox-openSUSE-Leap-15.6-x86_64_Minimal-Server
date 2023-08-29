@@ -115,6 +115,12 @@ systemctl start asterisk.service
 modprobe dahdi
 systemctl start dahdi.service
 
+systemctl restart apache2.service
+systemctl restart mariadb.service
+systemctl restart asterisk.service
+modprobe dahdi
+systemctl restart dahdi.service
+
 ################################################################
 vicibox-express
 
