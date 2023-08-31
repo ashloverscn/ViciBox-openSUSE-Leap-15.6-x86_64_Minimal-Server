@@ -1,18 +1,18 @@
 #generate self signed ssl certificates
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/apache2/ssl.key/vicibox.key -out /etc/apache2/ssl.crt/vicibox.crt
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/httpd/ssl.key/vicibox.key -out /etc/httpd/ssl.crt/vicibox.crt
 
 #allow asterisk to to update audio store with self-signed certificate
 
 cd /usr/share/astguiclient/
 sed -i 's/wgetbin -q/wgetbin --no-check-certificate -q/g' ADMIN_audio_store_sync.pl
 
-nano /etc/apache2/vhosts.d/0000-default-ssl.conf
+nano /etc/httpd/vhosts.d/0000-default-ssl.conf
 
 SSLEngine on
-SSLCertificateFile /etc/apache2/ssl.crt/vicibox.crt
-SSLCertificateKeyFile /etc/apache2/ssl.key/vicibox.key
+SSLCertificateFile /etc/httpd/ssl.crt/vicibox.crt
+SSLCertificateKeyFile /etc/httpd/ssl.key/vicibox.key
 
-nano /etc/apache2/vhosts.d/0000-default.conf
+nano /etc/httpd/vhosts.d/0000-default.conf
 
 DocumentRoot /srv/www/htdocs
 Redirect permanent / https://164.132.124.180/
@@ -26,8 +26,8 @@ bindaddr=0.0.0.0
 bindport=8088
 tlsenable=yes
 tlsbindaddr=0.0.0.0:8089
-tlscertfile=/etc/apache2/ssl.crt/vicibox.crt
-tlsprivatekey=/etc/apache2/ssl.key/vicibox.key
+tlscertfile=/etc/httpd/ssl.crt/vicibox.crt
+tlsprivatekey=/etc/httpd/ssl.key/vicibox.key
 
 nano /etc/asterisk/modules.conf
 
@@ -64,8 +64,8 @@ transport=wss
 force_avp=yes
 dtlsenable=yes
 dtlsverify=no
-dtlscertfile=/etc/apache2/ssl.crt/vicibox.crt
-dtlsprivatekey=/etc/apache2/ssl.key/vicibox.key
+dtlscertfile=/etc/httpd/ssl.crt/vicibox.crt
+dtlsprivatekey=/etc/httpd/ssl.key/vicibox.key
 dtlssetup=actpass
 rtcp_mux=yes
 
