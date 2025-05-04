@@ -1,8 +1,0 @@
-[openSUSE-Leap-15.5-PERL]
-enabled = 1
-autorefresh = 1
-baseurl = https://download.opensuse.org/repositories/devel:/languages:/perl/15.5/
-keeppackages = 1
-repo_gpgcheck = 0
-pkg_gpgcheck = 0
-

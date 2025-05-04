@@ -1,8 +1,0 @@
-[openSUSE-SLE-15.5-Backports]
-enabled = 1
-autorefresh = 1
-baseurl = https://download.opensuse.org/update/leap/15.5/backports/
-keeppackages = 1
-repo_gpgcheck = 0
-pkg_gpgcheck = 0
-
