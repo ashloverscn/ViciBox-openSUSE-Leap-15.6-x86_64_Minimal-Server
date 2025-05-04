@@ -1,0 +1,8 @@
+[openSUSE-SLE-15.6-Update]
+enabled = 1
+autorefresh = 1
+baseurl = https://download.opensuse.org/update/leap/15.6/sle
+keeppackages = 1
+repo_gpgcheck = 0
+pkg_gpgcheck = 0
+
