@@ -2,9 +2,9 @@
 
 SVNDIR="/usr/src/astguiclient"
 
-if ! -d "$SVNDIR" ]; then
-	echo "Making $SVNDIR"
-	mkdir $SVNDIR
+if [ ! -d "$SVNDIR" ]; then
+    echo "Making $SVNDIR"
+    mkdir -p "$SVNDIR"
 fi
 
 cd $SVNDIR

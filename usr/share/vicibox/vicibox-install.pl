@@ -333,7 +333,11 @@ sub dothedeed {
 				# Now insert the extra ViciBox stuff
 				$stmtSQL="INSERT INTO `vicidial_ip_lists` VALUES ('ViciWhite','White List for ViciBox firewall ACL','N','---ALL---'), ('ViciBlack','Black List for ViciBox firewall ACL','N','---ALL---');";
 				$dbhVDnew->do($stmtSQL);
-				$stmtSQL = "INSERT INTO `vicidial_conf_templates` (`template_id`, `template_name`, `template_contents`, `user_group`) VALUES ('VICIphone', 'VICIphone WebRTC', 'type=friend\r\nhost=dynamic\r\nencryption=yes\r\navpf=yes\r\nicesupport=yes\r\ndirectmedia=no\r\ntransport=wss\r\nforce_avp=yes\r\ndtlsenable=yes\r\ndtlsverify=no\r\ndtlscertfile=/etc/apache2/ssl.crt/vicibox.crt\r\ndtlsprivatekey=/etc/apache2/ssl.key/vicibox.key\r\ndtlssetup=actpass\r\nrtcp_mux=yes\r\n', '---ALL---');";
+				$stmtSQL = "INSERT INTO `vicidial_conf_templates` (`template_id`, `template_name`, `template_contents`, `user_group`) VALUES ('VICIphoneSIP', 'VICIphoneSIP WebRTC', 'type=friend\r\nhost=dynamic\r\nencryption=yes\r\navpf=yes\r\nicesupport=yes\r\ndirectmedia=no\r\ntransport=wss\r\nforce_avp=yes\r\ndtlsenable=yes\r\ndtlsverify=no\r\ndtlscertfile=/etc/apache2/ssl.crt/vicibox.crt\r\ndtlsprivatekey=/etc/apache2/ssl.key/vicibox.key\r\ndtlssetup=actpass\r\nrtcp_mux=yes\r\n', '---ALL---');";
+				$dbhVDnew->do($stmtSQL);
+				$stmtSQL = "INSERT INTO `vicidial_conf_templates` (`template_id`, `template_name`, `template_contents`, `user_group`) VALUES ('VICIphonePJSIP', 'VICIphonePJSIP WebRTC', 'inbound_auth/nonce_lifetime = 32\r\naor/max_contacts = 1\r\naor/maximum_expiration = 3600\r\naor/minimum_expiration = 60\r\naor/default_expiration = 120\r\n\r\nendpoint/context = default\r\nendpoint/dtmf_mode = rfc4733\r\nendpoint/rtp_symmetric = yes\r\nendpoint/rewrite_contact = yes\r\nendpoint/rtp_timeout = 60\r\nendpoint/use_ptime = yes\r\nendpoint/moh_suggest = default\r\nendpoint/direct_media = no\r\nendpoint/trust_id_inbound = no\r\nendpoint/send_rpid = yes\r\nendpoint/inband_progress = no\r\nendpoint/tos_audio = ef\r\nendpoint/language = en\r\n\r\nendpoint/ice_support = yes\r\nendpoint/media_encryption = dtls\r\nendpoint/media_use_received_transport=yes\r\nendpoint/dtls_verify = no\r\nendpoint/dtls_cert_file = /etc/apache2/ssl.crt/vicibox.crt\r\nendpoint/dtls_private_key = /etc/apache2/ssl.key/vicibox.key\r\nendpoint/dtls_setup = actpass\r\nendpoint/transport=transport-wss\r\nendpoint/rtcp_mux=yes', '---ALL---');";
+				$dbhVDnew->do($stmtSQL);
+				$stmtSQL = "UPDATE system_settings set allowed_sip_stacks='SIP_and_PJSIP';";
 				$dbhVDnew->do($stmtSQL);
 				$stmtSQL = "UPDATE system_settings set webphone_url='https://phone.viciphone.com/viciphone.php';";
 				$dbhVDnew->do($stmtSQL);
@@ -410,7 +414,7 @@ sub dothedeed {
 		}
 		
 		# Do the general stuff for a telephony server from bash where life is easier
-		system("/usr/share/vicibox/vicibox-tel.sh >> /var/log/vicibox.log 2>> /var/log/vicibox.log");
+		system("/usr/share/vicibox/vicibox-tel.sh $PJSIP >> /var/log/vicibox.log 2>> /var/log/vicibox.log");
 		
 		# We only run the below, which inserts us into vicidial and the vicihost table, if we aren't in restore mode
 		if ($restore==0) {
@@ -765,6 +769,7 @@ if ( $astverstring =~ m/^1.8/ ) { if ($debug==1) { print "Asterisk v.1.8 found!\
 if ( $astverstring =~ m/^11./ ) { if ($debug==1) { print "Asterisk v.11 found!\n"; } $asterisk='11'; }
 if ( $astverstring =~ m/^13./ ) { if ($debug==1) { print "Asterisk v.13 found!\n"; } $asterisk='13'; }
 if ( $astverstring =~ m/^16./ ) { if ($debug==1) { print "Asterisk v.16 found!\n"; } $asterisk='16'; }
+if ( $astverstring =~ m/^18./ ) { if ($debug==1) { print "Asterisk v.18 found!\n"; } $asterisk='18'; }
 
 # Get the SVN version of our local copy
 @svninfo = `/usr/bin/svn info /usr/src/astguiclient/trunk | grep Revision | sed -e 's/Revision: //'`;
@@ -995,6 +1000,11 @@ if ($restore==1) {
 			$TEL = &yesprompt;
 			
 			if ($TEL==1) {
+				# If asterisk 18 or higher, ask for PJSIP
+				if ($asterisk >= 18) {
+					print "---> Enable PJSIP? [Y/n] : ";
+					$PJSIP = &noprompt;
+				}
 				print "---> Do you have an archive server? [y/N] : ";
 				$havearchive = &yesprompt;
 				if ($havearchive==1) {
@@ -1160,6 +1170,10 @@ if ($viciboxexpress==1) {
 	$TEL=1;
 	$DB=1;
 	$WEB=1;
+	$PJSIP=1; # Use SIP by default
+	if ($asterisk >= 18) {
+		$PJSIP=0; # Use PJSIP if it's asterisk 18
+	}
 	# If we detect internet connectivity, update from SVN, otherwise use local copy
 	if ($extip ne "X") {
 		$DBsvnrev = $svnhead;
@@ -1388,6 +1402,11 @@ if ($WEB==1 && $expert==1) {
 
 print "\nWill this server be used as a Telephony server? [y/N] : ";
 $TEL = &yesprompt;
+
+if ($TEL==1 and $asterisk >= 18) {
+	print "---> Enable PJSIP? [Y/n] : ";
+	$PJSIP = &noprompt;
+}
 
 # If we are legacy and telephony then ask more questions
 if ($TEL==1 && $legacy==1 && $DB==0) {

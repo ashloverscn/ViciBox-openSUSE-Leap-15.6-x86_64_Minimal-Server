@@ -1,6 +1,6 @@
 
 [Unit]
-Description=MariaDB 10.6.14 database server (socket activation multi-instance %I))
+Description=MariaDB 10.11.9 database server (socket activation multi-instance %I))
 Documentation=man:mariadbd(8)
 Documentation=https://mariadb.com/kb/en/library/systemd/
 

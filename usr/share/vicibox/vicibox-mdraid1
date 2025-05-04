@@ -3,192 +3,513 @@
 #
 # This does a mostly automated setup to get a full linux software raid array installed.
 # It's only a RAID-1 setup but with most modern SSDs, even SATA SSDs, this is plenty
-# for your average ViciDial setup. The only real exeption to this would be a larger
+# for your average ViciDial setup. The only real exception to this would be a larger
 # database which is almost always going to be a custom build with dedicated disks.
 #
+# Usage: ./vicibox-mdraid1 /dev/sda /dev/sdb
 
 
-### Thank opensuse for assinign sd5 to md4 for this weird cross-section of a partition layout
+### Thank opensuse for assigning sd5 to md4 for this weird cross-section of a partition layout
 # TODO: Detect these automatically?
+LOG_FILE="/tmp/vicibox-md.log"
 EFI_PART="2"
 SWAP_PART="3"
 ROOT_PART="4"
 SWAP_ARRAY="/dev/md1"
 ROOT_ARRAY="/dev/md2"
-LOG_FILE="/tmp/vicibox-md.log"
+DISK1="/dev/sda"
+DISK2="/dev/nvme0n1"
 
-# Go somewhere safe
+# Go somewhere safe and handle CLI
 cd /tmp
 
-### These definitely stolen from Marius
+### Functions
 function commentLine {
-	local file="$1"
-	local search="$(echo "$2" | sed -e 's/[]\/$*.^[]/\\&/g')"   # escape sed search keyword https://stackoverflow.com/a/2705678  
-	sed -i "s/^.*${search}/#&/g" "$file"
+    local file="$1"
+    local search="$(echo "$2" | sed -e 's/[]\/$*.^[]/\\&/g')"   # escape sed search keyword https://stackoverflow.com/a/2705678
+    sed -i "s/^.*${search}/#&/g" "$file"
 }
 function uuidFor {
-	blkid -s UUID -o value "$1"
+    blkid -s UUID -o value "$1"
+}
+function blk_exists() {
+    local blk="$1"
+    [ -b "$blk" ]
+}
+function md_exists() {
+    local md_device="$1" 
+    # Check if block device exists first
+    if ! blk_exists "$md_device"; then
+        return 1
+    # Verify it's an MD device
+    elif ! mdadm --detail "$md_device" >/dev/null 2>&1; then
+        return 1
+    fi
+    return 0
+}
+function get_md_devices() {
+    local md_device=$1
+    
+    # Sanity check
+    if ! md_exists "$md_device"; then
+        echo "Error: $md_device does not exist or is not an MD device" >&2
+        return 1
+    fi
+
+    # Echo devices instead of return
+    mdadm --detail "$md_device" 2>/dev/null | grep "active sync" | awk '{print $7}'
+}
+function find_orphaned_md_devices() {
+    # Check for high numbered arrays (md126+) and degraded arrays
+    for raid_dev in /dev/md*; do
+        # Skip if not MD device or not md12*
+        if ! mdadm --detail "$raid_dev" >/dev/null 2>&1 || \
+           [[ ! "$raid_dev" =~ ^/dev/md(12[0-9]|[0-9]{3,})$ ]]; then
+            continue
+        fi
+        
+        # Get array details
+        local level=$(mdadm --detail "$raid_dev" | grep "Raid Level" | cut -d: -f2 | tr -d ' ')
+        local state=$(mdadm --detail "$raid_dev" | grep "State" | cut -d: -f2 | tr -d ' ')
+        
+        echo "    $raid_dev (RAID$level - $state)"
+        
+        # List member devices with states
+        mdadm --detail "$raid_dev" | grep "/dev/" | \
+            awk '{printf "      %-20s %s\n", $7, $4}'
+    done
+    echo
+}
+function get_blkdev_size() {
+    local disk="$1"
+    lsblk -b -d -n -o SIZE "$disk"
+}
+# Find suitable block devices for RAID array
+function find_blkdev_targets() {
+    local source_disk="$1"
+    
+    # Get source disk size with error handling
+    local source_size=$(blockdev --getsize64 "$source_disk" 2>/dev/null)-1
+    if [[ -z "$source_size" ]]; then
+        echo "Error: Could not determine size of $source_disk" >&2
+        return 1
+    fi
+    
+    # Check NVMe and SATA devices 
+    for device in /dev/nvme[0-9]*n[0-9]* /dev/sd[a-z]; do
+        # Skip if device doesn't exist
+        [[ -b "$device" ]] || continue
+        
+        # Skip if source disk
+        [[ "$device" == "$source_disk"* ]] && continue
+        
+        # Skip if already used in an array
+        if mdadm --examine "$device" &>/dev/null; then
+            continue
+        fi
+        
+        # Make sure it's big enough
+        local target_size=$(blockdev --getsize64 "$device" 2>/dev/null)
+        if [[ -n "$target_size" && "$target_size" -ge "$source_size" ]]; then
+            # Output just the device name for mapfile
+            echo "$device"
+        fi
+    done
+}
+function show_raid_status() {
+    local array=$1
+    local name=$2
+    
+    echo "  $name Array ($array):"
+    mdadm --detail "$array" | grep -E "Raid Level|Array Size|State|Active|Working|Failed|Spare" | \
+        sed 's/^/    /'
+    
+    echo "    Members:"
+    mdadm --detail "$array" | grep "/dev/" | \
+        awk '{printf "      %-20s %s\n", $7, $4}'
+    echo
+}
+# Function to check if value exists in array
+function array_contains() {
+    local seeking=$1
+    shift
+    local in=1
+    for element; do
+        if [[ $element == "$seeking" ]]; then
+            in=0
+            break
+        fi
+    done
+    return $in
+}
+function get_basedev() {
+    local device="$1"
+    
+    # Check if input is provided
+    if [ -z "$device" ]; then
+        echo "Error: No device specified" >&2
+        return 1
+    fi
+
+    # Handle different device types
+    if [[ $device =~ nvme ]]; then
+        echo "$device" | sed 's/p[0-9]\+$//'  # NVMe devices (nvme0n1p1 -> nvme0n1)
+    else
+        echo "$device" | sed 's/[0-9]\+$//'   # Standard devices (sda1 -> sda)
+    fi
+}
+function kill_orphans() {
+    # Stop any orphans in case they're in the way
+    if compgen -G "/dev/md12*" > /dev/null; then
+        mdadm --stop /dev/md12*
+    fi
 }
 
-# Sanity checks
-if [ -e $SWAP_ARRAY ]; then
-	echo "  Proposed swap array already in use at $SWAP_ARRAY! Was this already done?"
-	echo "  This script cannot safely be run so exiting."
-	exit 2
-fi
-if [ ! -e $ROOT_ARRAY ]; then
-	echo "  Root array not detected at $ROOT_ARRAY!"
-	echo "  This script only works with the Vicibox v.11.0 MDRAID edition."
-	exit 2
+### Main program start
+echo "--- ViciBox MD RAID1 ---"
+
+# MD Raid sanity check, die early and often
+if ! md_exists "$ROOT_ARRAY"; then
+    echo "Error: $ROOT_ARRAY root array not found"
+    exit 1
 fi
 
+# If old logfile exists, move it to logfile-datestamp
+if [ -e "$LOG_FILE" ]; then
+    # get timestamp of old logfile's m-time
+    timestamp=$(stat -c %Y "$LOG_FILE" | xargs -I{} date -d @{} "+%Y%m%d-%H%M%S")
+    mv "$LOG_FILE" "$LOG_FILE-${timestamp}"
+fi
 
-# Usage: ./vicibox-mdraid1 /dev/sda /dev/sdb
-DISK1="${1:-/dev/sda}"
-DISK2="${2:-/dev/sdb}"
-echo "  It is recommended to reboot at least once prior to running this script."
-echo "  If you have any issues running this script, it's recommended to wipe the"
-echo "  drives clean and then reinstall from the ISO. The drives can be wiped by"
-echo "  running the following commands prior to reinstalling :"
-echo "     wipefs -fa $DISK1"
-echo "     wipefs -fa $DISK2"
-echo
-if [ "$DISK1" = "" -o "$DISK2" = "" -o "$DISK1" = "$DISK2" ]; then
-	echo "  Source and Target disks not specified!"
-	echo ""
-	echo "  Usage: $0 /dev/sda /dev/sdb"
-	echo ""
-	exit 2
+# Check if the required arguments are provided
+if [ "$#" -gt 0 ]; then
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+		echo "This will setup a RAID1 array with for the swap and root partitions."
+		echo "It will also allow you to add new disks to the existing arrays."
+		exit 0
+	fi
+fi
+
+# Check for any oprhaned MD devices from previous installs; They start at /dev/md126 and up
+if compgen -G "/dev/md12*" > /dev/null; then
+	echo -e "\n\n Orphaned RAID arrays have been found from a previous install! These"
+	echo " can cause issues with the new RAID arrays. It is recommended to remove"
+	echo " these before continuing. This script will remove the arrays and wipe"
+	echo " the drive using wipefs. This is a permanent and irrecoverable!"
+	echo
+	echo "  Orphaned RAID arrays found:"
+	find_orphaned_md_devices
+    read -r -p "    Do you want to remove the orphaned arrays? [N/y] " response
+    if [[ ! "${response,,}" =~ ^(yes|y)$ ]]; then
+        echo
+        echo " Please disable any orphaned RAID arrays before continuing."
+        exit 1
+    fi
+	# Stop all RAID arrays and clean members
+    swapoff -a # Automount funsies might mount a read-only swap array... yay...
+	echo -e "\n +- Cleaning orphaned RAID arrays..."
+	echo "Cleaning orphaned RAID arrays..." >> "$LOG_FILE"
+	base_devices=()
+	for raid_dev in /dev/md12*; do
+		# Skip if not MD device
+		if ! mdadm --detail "$raid_dev" >/dev/null 2>&1; then
+			echo " |- $raid_dev is not a valid MD device, skipping..."
+			echo "  $raid_dev is not a valid MD device, skipping..." >> "$LOG_FILE"
+			continue
+		fi
+		
+		# Get member devices before stopping array
+		members=$(mdadm --detail "$raid_dev" | grep "/dev" | grep -v "$raid_dev"  | awk '{print $5}')
+
+		echo -n " |- Disabling $raid_dev..."
+		echo "  Disabling $raid_dev" >> "$LOG_FILE"
+		if ! mdadm --stop "$raid_dev" >> "$LOG_FILE" 2>&1; then
+			echo "failed!"
+			exit 1
+		fi
+		echo "done."
+
+		# Zero superblock for each member device...
+		for member in $members; do
+			echo -n " |-- Removing MD metadata from $member..."
+			echo "  Removing MD metadata from $member" >> "$LOG_FILE"
+			if ! mdadm --zero-superblock "$member" >> "$LOG_FILE" 2>&1; then
+				echo "failed!"
+				exit 1
+			fi
+			# Parse base device from member
+			if [[ $member =~ nvme ]]; then
+				base_device=$(echo "$member" | sed 's/p[0-9]\+$//')
+			else
+				base_device=$(echo "$member" | sed 's/[0-9]\+$//')
+			fi
+			# Add base device to array if not already present
+			if ! array_contains "$base_device" "${base_devices[@]}"; then
+				base_devices+=("$base_device")
+			fi
+			echo "done."
+		done
+	done
+
+	# Wipe all base devices
+	for base_device in "${base_devices[@]}"; do
+		echo -n " |--- Wiping $base_device..."
+		echo "  Wiping $base_device" >> "$LOG_FILE"
+		if ! wipefs -af "$base_device" >> "$LOG_FILE" 2>&1; then
+			echo "failed!"
+			exit 1
+		fi
+		echo "done."
+	done
+    echo -e "\n\n"
+fi
+
+# Verify no orphaned arrays left
+if compgen -G "/dev/md12*" > /dev/null; then
+    echo "Error: Orphaned RAID arrays still exist! wipe drives manually and try again."
+    echo "Error: Orphaned RAID arrays still exist" >> "$LOG_FILE"
+    exit 1
+fi
+
+# Check if we're new or give raid status
+if ! md_exists "$SWAP_ARRAY"; then
+	echo "Initial setup detected."
 else
-	echo "  ViciBox v.11.0 Linux MD RAID1 array setup:"
-	echo "    Swap Array: $SWAP_ARRAY from $DISK1$SWAP_PART and $DISK2$SWAP_PART"
-	echo "    Root Array: $ROOT_ARRAY from $DISK1$ROOT_PART and $DISK2$ROOT_PART"
-	echo
-	echo "  Log File: $LOG_FILE"
-	echo
+    echo "RAID Array Status:"
+    echo "-----------------"
+
+    if md_exists "$ROOT_ARRAY"; then
+        show_raid_status "$ROOT_ARRAY" "Root"
+    fi
+
+    if md_exists "$SWAP_ARRAY"; then
+        show_raid_status "$SWAP_ARRAY" "Swap"
+    fi
+    echo "-----------------"
+
+
+	read -p "Do you want to add another device to the arrays? (N/y) : " response
+	if [[ "${response,,}" =~ ^[Nn]$ ]]; then
+        echo "Exiting RAID setup"
+        echo "--- User exited RAID setup" >> $LOG_FILE
+		exit 2
+	fi
+    echo ""
+fi
+
+# Determine the first active disk in the root array
+RAID_DEVICES=($(get_md_devices "$ROOT_ARRAY"))
+if [ ${#RAID_DEVICES[@]} -gt 0 ]; then
+    DISK1=$(get_basedev "${RAID_DEVICES[0]}")
+elif [ -n "$1" ]; then
+    DISK1=$(get_basedev "$1")
+else
+    echo -e "\nError: No RAID devices found in $ROOT_ARRAY\n"
+    exit 2
+fi
+
+# Verify disk exists
+if ! blk_exists "$DISK1"; then
+    echo -e "\nError: Source $DISK1 block device not found\n"
+    exit 2
+fi
+
+# Get disk size
+if ! disk1_blk_size=$(get_blkdev_size "$DISK1"); then
+    echo "Error: Could not get size of $DISK1" >&2
+    exit 1
+fi
+
+echo "  Source disk: $DISK1 - $((disk1_blk_size/1024/1024/1024))G"
+
+# Determine target disk
+if [ -n "$2" ]; then
+    DISK2=$(get_basedev "$2")
+    if ! blk_exists "$DISK2"; then
+        echo "Error: Target $DISK2 block device not found"
+        exit 2
+    fi
+    if [ "$DISK1" = "$DISK2" ]; then
+        echo "Error: Target disk cannot be the same as source disk"
+        exit 1
+    fi
+    if ! disk2_blk_size=$(get_blkdev_size "$DISK2"); then
+        echo "Error: Could not get size of $DISK2" >&2
+        exit 1
+    fi
+    echo "  Target disk: $DISK2 - $((disk2_blk_size/1024/1024/1024))G"
+
+else
+    # Show suitable targets based on our source disk
+    echo -n "  - Scanning for suitable NVMe/SATA targets... " >> $LOG_FILE
+    mapfile -t AVAILABLE_TARGETS < <(find_blkdev_targets "$DISK1")
+    
+    if [ ${#AVAILABLE_TARGETS[@]} -eq 0 ]; then
+        echo -e "\n  No suitable targets found for $DISK1!\n"
+        exit 1
+    else
+        echo "  Suitable targets for $DISK1:"
+        for i in "${!AVAILABLE_TARGETS[@]}"; do
+            disk_size=$(get_blkdev_size "${AVAILABLE_TARGETS[$i]}")
+            echo "    [$i] ${AVAILABLE_TARGETS[$i]} - $((disk_size/1024/1024/1024))G"
+        done
+        
+        echo "    [X] Exit RAID setup"
+        echo
+        echo -n "Select target device to add to arrays: "
+        read -r selection
+        
+        # Validate selection
+        if [[ "$selection" =~ ^[Xx]$ ]]; then
+            echo "Exiting RAID setup"
+            echo "--- User exited RAID setup" >> $LOG_FILE
+            exit 0
+        elif [[ ! "$selection" =~ ^[0-9]+$ ]] || [ "$selection" -ge "${#AVAILABLE_TARGETS[@]}" ]; then
+            echo "Invalid selection"
+            exit 1
+        fi
+        DISK2="${AVAILABLE_TARGETS[$selection]}"
+        echo "  Target disk: $DISK2"
+        echo "--- Target disk: $DISK2" >> $LOG_FILE
+    fi
+fi
+
+# Generate absolute paths cause SATA and NVMe enumerate differently
+DISK1_EFI_PART=$DISK1$EFI_PART
+DISK1_SWAP_PART=$DISK1$SWAP_PART
+DISK1_ROOT_PART=$DISK1$ROOT_PART
+if [[ $DISK1 =~ nvme ]]; then
+	DISK1_EFI_PART=$DISK1"p"$EFI_PART
+	DISK1_SWAP_PART=$DISK1"p"$SWAP_PART
+	DISK1_ROOT_PART=$DISK1"p"$ROOT_PART
+fi
+DISK2_EFI_PART=$DISK2$EFI_PART
+DISK2_SWAP_PART=$DISK2$SWAP_PART
+DISK2_ROOT_PART=$DISK2$ROOT_PART
+if [[ $DISK2 =~ nvme ]]; then
+	DISK2_EFI_PART=$DISK2"p"$EFI_PART
+	DISK2_SWAP_PART=$DISK2"p"$SWAP_PART
+	DISK2_ROOT_PART=$DISK2"p"$ROOT_PART
 fi
 
 # Standard disclaimer and point of last return
+echo "ViciBox Linux MD RAID1 array setup:" >> $LOG_FILE
+echo "  Swap Array: $SWAP_ARRAY cloning $DISK1_SWAP_PART to $DISK2_SWAP_PART" >> $LOG_FILE
+echo "  Root Array: $ROOT_ARRAY cloning $DISK1_ROOT_PART to $DISK2_ROOT_PART" >> $LOG_FILE
+echo -e "\n\nViciBox Linux MD RAID1 array setup:"
+echo "  Swap Array: $SWAP_ARRAY cloning $DISK1_SWAP_PART to $DISK2_SWAP_PART"
+echo "  Root Array: $ROOT_ARRAY cloning $DISK1_ROOT_PART to $DISK2_ROOT_PART"
 echo
-echo "  This script will DESTROY ALL DATA on $DISK2 and modify $DISK1."
-echo "  This is irrecoverable and permanent!"
-read -r -p "   Do you want to continue? [y/N] " response
+echo "  This script will DESTROY ALL DATA on $DISK2 and potentially modify"
+echo "  $DISK1 and associated arrays. This is irrecoverable and permanent!"
+echo
+read -r -p "   Do you want to continue? [N/y] " response
 if [[ ! "${response,,}" =~ ^(yes|y)$ ]]; then
-	exit 3
-fi
-echo
-
-# Setup log file
-echo "ViciBox v.11.0 Linux MD RAID1 array setup:" >> $LOG_FILE
-echo "  Swap Array: $SWAP_ARRAY from $DISK1$SWAP_PART and $DISK2$SWAP_PART" >> $LOG_FILE
-echo "  Root Array: $ROOT_ARRAY from $DISK1$ROOT_PART and $DISK2$ROOT_PART" >> $LOG_FILE
-echo >> $LOG_FILE
-
-# More sanity checks
-if [ -e "/dev/md126" ]; then
-	echo "  Old MDRAID partitions detected on $DISK2!"
-	read -r -p "    Do you want to remove these and clean the drive? [y/N] " response
-	if [[ ! "${response,,}" =~ ^(yes|y)$ ]]; then
-		echo
-		echo " Please disable any running RAID arrays before continuing."
-		exit
-	else
-		echo "Cleaning old MD-RAID arrays off $DISK2:" >> $LOG_FILE
-		for f in /dev/md12*; do
-			echo -n "    Disabling $f..."
-			echo "  Disabling $f" >> $LOG_FILE
-			mdadm --stop $f >>$LOG_FILE 2>&1
-			echo "done."
-		done
-		echo -n "  Removing MD metadata from $f..."
-		mdadm --zero-superblock $f >>$LOG_FILE 2>&1
-		echo "done."
-		echo -n "  Wiping the rest of $DISK2... "
-		wipefs -af $DISK2  >>$LOG_FILE 2>&1 # Clear partition table just because
-		echo "done."
-		echo
-		echo "  It is recommended to reboot the server prior to continuing."
-	fi
-fi
-echo "" >> $LOG_FILE
-echo "" >> $LOG_FILE
-echo
-
-# Clone partitions
-echo -n "  Partitioning $DISK2... "
-echo "--- Partitioning $DISK2 from $DISK1" >> $LOG_FILE
-wipefs -af $DISK2 >>$LOG_FILE 2>&1 # Clear partition table just because
+    echo "Operation cancelled by user"
+    exit 3  # User abort
+fi 
+echo -e "\n\n"
+kill_orphans # Just in case
+# Create partitions on target disk
+echo -n "  Cloning $DISK1 partitions to $DISK2... "
+echo "---  Cloning $DISK1 partitions to $DISK2" >> $LOG_FILE
 sgdisk "$DISK2" --zap-all >>$LOG_FILE 2>&1
 sgdisk "$DISK1" --replicate="$DISK2" --randomize-guids >>$LOG_FILE 2>&1
-# Stale md arrays, weird linux stuff from previous installs, etc
-# So just shut them down if they pop up
-for f in /dev/md12*; do
-	mdadm --stop $f >> $LOG_FILE 2>&1
-done
+# So, if you reinstall a server with the same drives and partition layout
+# without wiping the old MD RAID metadata off first the linux kernel will autoassemble
+# it resulting in a degraded zombie array from the old system. For example,
+# /dev/md1, the swap array, will now exist with the target drive, /dev/sdb3, in it and
+# assembled in read-only mode. Turning this behavior off reliably requires rebooting with
+# kernel CMDLINE parameters and we ain't about that life. So instead we check to see if 
+# our target disk is already in the swap array. If it is then logically we need to stop 
+# the array since we can't add a drive to an MD array that it's already in. The swap 
+# array should just not exist in this case. To fix this we just stop the array so the
+# rest of the script can happen... sometimes I hate linux.
+if md_exists "$SWAP_ARRAY" && mdadm --detail "$SWAP_ARRAY" | grep -q "$DISK2_SWAP_PART"; then
+    echo "---  Zombie $SWAP_ARRAY found on $DISK2_SWAP_PART, stopping..." >> $LOG_FILE
+    mdadm --stop "$SWAP_ARRAY" >> $LOG_FILE 2>&1
+fi
+kill_orphans # and again cause kernel going to kernel
 echo "done."
+echo "---  Partitioning $DISK2 Complete" >> $LOG_FILE
 
-# Until Linux comes up with a better way to handle redundant EFI partitions, we cheat and do this
+# UEFI doesn't really speak RAID so we just clone the EFI partition
+# There's probably a better way to do this, but this works for now
 echo -n "  Cloning EFI parition... "
+echo "---  Cloning EFI partition" >> $LOG_FILE
 umount /boot/efi  >>$LOG_FILE 2>&1
-dd if=${DISK1}${EFI_PART} of=${DISK2}${EFI_PART}  >>$LOG_FILE 2>&1
+dd if=$DISK1_EFI_PART of=$DISK2_EFI_PART >>$LOG_FILE 2>&1
 mount /boot/efi  >>$LOG_FILE 2>&1
 echo "done."
+echo "---  EFI partition cloned." >> $LOG_FILE
 
-# Do swap
-echo -n "  Setting up swap array $SWAP_ARRAY... "
-echo "--- Setting up swap array $SWAP_ARRAY" >>$LOG_FILE
-# Migrate swap to RAID1 to prevent system crashes from disk failure
-if [ -e "$SWAP_ARRAY" ]; then
-	mdadm --stop $SWAP_ARRAY  >>$LOG_FILE 2>&1
+# If swap array doesn't exist, create it
+if ! md_exists "$SWAP_ARRAY"; then
+    echo -n "  Creating swap array $SWAP_ARRAY... "
+    echo "---  Creating swap array $SWAP_ARRAY from $DISK1_SWAP_PART and $DISK2_SWAP_PART" >>$LOG_FILE
+    swapoff -a
+    mdadm --zero-superblock "$DISK1_SWAP_PART" >>$LOG_FILE 2>&1
+    mdadm --zero-superblock "$DISK2_SWAP_PART" >>$LOG_FILE 2>&1
+    # Create array with missing device
+    if ! mdadm --create --force "$SWAP_ARRAY" --level=1 --raid-devices=2 --metadata=1.2 "$DISK1_SWAP_PART" "missing" >>$LOG_FILE 2>&1; then
+        echo "Failed to create swap array $SWAP_ARRAY."
+        echo "------  Failed to create swap array $SWAP_ARRAY with $DISK1_SWAP_PART." >> $LOG_FILE
+        exit 1
+    fi
+    # Add existing swap partition to array
+    if ! mdadm --add "$SWAP_ARRAY" "$DISK2_SWAP_PART" >>$LOG_FILE 2>&1; then
+        echo "Failed to add $DISK2_SWAP_PART to swap array $SWAP_ARRAY."
+        echo "------  Failed to add $DISK2_SWAP_PART to swap array $SWAP_ARRAY." >> $LOG_FILE
+        exit 1
+    fi
+    mkswap -f "$SWAP_ARRAY" >>$LOG_FILE 2>&1
+    commentLine /etc/fstab 'swap' >>$LOG_FILE 2>&1
+    echo "UUID=$(uuidFor "$SWAP_ARRAY") swap swap defaults 0 0" >> /etc/fstab
+    swapon -a
+    echo "done."
+    echo "--- Swap array created." >> $LOG_FILE
+else
+    # Swap array exists, so just add it to the array
+    echo -n "  Adding $DISK2_SWAP_PART to swap array $SWAP_ARRAY... "
+    echo "  Adding $DISK2_SWAP_PART to swap array $SWAP_ARRAY" >>$LOG_FILE
+    mdadm --zero-superblock "$DISK2_SWAP_PART" >>$LOG_FILE 2>&1
+    mdadm --add "$SWAP_ARRAY" "$DISK2_SWAP_PART" >>$LOG_FILE 2>&1
+    echo "done."
+    echo "--- Swap array updated." >> $LOG_FILE
 fi
-swapoff -a  >>$LOG_FILE 2>&1
-mdadm --zero-superblock "${DISK1}${SWAP_PART}" >>$LOG_FILE 2>&1
-mdadm --zero-superblock "${DISK2}${SWAP_PART}" >>$LOG_FILE 2>&1
-mdadm --create --force "$SWAP_ARRAY" --level=1 --raid-devices=2 --metadata=1.2 "${DISK1}${SWAP_PART}" "${DISK2}${SWAP_PART}" >>$LOG_FILE 2>&1
-mkswap -f "$SWAP_ARRAY" >>$LOG_FILE 2>&1
-commentLine /etc/fstab 'swap' >>$LOG_FILE 2>&1
-echo "UUID=$(uuidFor "$SWAP_ARRAY") swap swap defaults 0 0" >> /etc/fstab
-swapon -a >>$LOG_FILE 2>&1
+
+# Handle the root array
+echo -n "  Adding $DISK2_ROOT_PART to root array $ROOT_ARRAY..."
+echo "  Adding $DISK2_ROOT_PART to root array $ROOT_ARRAY" >>$LOG_FILE
+mdadm --zero-superblock "$DISK2_ROOT_PART" >>$LOG_FILE 2>&1
+mdadm --add "$ROOT_ARRAY" "$DISK2_ROOT_PART" >>$LOG_FILE 2>&1
 echo "done."
+echo "--- Root array updated." >> $LOG_FILE
 
-
-# Setup root last because it takes the longest to replicate and has the most database
-# It's also on the boot drive so it is least critical as far as rebooting goes
-echo -n "  Adding ${DISK2}${ROOT_PART} to root array $ROOT_ARRAY... "
-echo "--- Adding ${DISK2}${ROOT_PART} to root array $ROOT_ARRAY" >> $LOG_FILE
-mdadm --zero-superblock "${DISK2}${ROOT_PART}" >>$LOG_FILE 2>&1
-mdadm --add "$ROOT_ARRAY" "${DISK2}${ROOT_PART}" >>$LOG_FILE 2>&1
+echo -n "  Generating new mdadm.conf... "
 mdadm --detail --scan > /etc/mdadm.conf
 sed -i '/INACTIVE/d' /etc/mdadm.conf
 echo "done."
 
 # Install bootloader
-echo -n "  Installing grub boot loader..."
-echo "--- Installing bootloader and creating initrd" >> $LOG_FILE
+echo -n "  Installing grub boot loader on $DISK2... "
+echo "  Installing bootloader and creating initrd" >> $LOG_FILE
+dracut --force >>$LOG_FILE 2>&1 # opensuse uses dracut instead of mkinitrd
 grub2-mkconfig -o /boot/grub2/grub.cfg >>$LOG_FILE 2>&1
-mkinitrd >>$LOG_FILE 2>&1
-grub2-install "$DISK1" >>$LOG_FILE 2>&1
 grub2-install "$DISK2" >>$LOG_FILE 2>&1
 echo "done."
+echo "--- Bootloader installed." >> $LOG_FILE
+
+# Summart output
 echo
-
-
-# Show the RAID arrays rebuilding and give output
-read -r -p "Do you want to wait until the arrays rebuild? (Y/n) : " response
-if [[ "${response,,}" =~ ^(yes|y)$ ]]; then
-	local arrays="$(cat /proc/mdstat | grep 'blocks' --count)"
-	while [ ! "$(cat /proc/mdstat | grep '\[UU\]' --count)" = "$arrays" ]; do
-		clear
-		echo "RAID arrays not synced yet, current status:"
-		echo
-		cat /proc/mdstat
-		echo
-		echo "    --   To proceed without waiting on arrays to rebuild, press CTRL-C   --"
-		echo "    --   Server should be rebooted to verify RAID is booting correctly   --"
-		sleep 5
-	done
-fi
-
+echo "RAID Array Status:"
+echo "-----------------"
+show_raid_status "$ROOT_ARRAY" "Root"
+show_raid_status "$SWAP_ARRAY" "Swap"
+echo "-----------------"
+echo
+echo "  RAID1 setup complete. Please review the log file for any errors."
+echo
 
 
 

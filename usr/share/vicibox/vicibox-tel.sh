@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # ViciBox Telephony script, basically does some DAHDI autodetect things
+# $1 = PJSIP; 1 = no, 0 = yes
 
 # Do our DAHDI thing
 modprobe dahdi >> /var/log/vicibox.log 2>&1
@@ -8,7 +9,8 @@ modprobe dahdi >> /var/log/vicibox.log 2>&1
 
 # Make an entry for ramdrive if it's not already there
 if ! [[ `cat /etc/fstab | grep monitor` ]]; then
-	/bin/echo "tmpfs   /var/spool/asterisk/monitor       tmpfs      rw,size=6G              0 0" >> /etc/fstab
+	# No longer needed with modern drives/systems, left here for completeness
+	#/bin/echo "tmpfs   /var/spool/asterisk/monitor       tmpfs      rw,size=6G              0 0" >> /etc/fstab
 fi
 
 # Make sure we can get recordings from apache
@@ -79,9 +81,16 @@ touch extensions.lua
 cp /usr/share/vicibox/modules.conf /etc/asterisk/modules.conf
 
 # ViciPhone WebRTC setup
-sed -i "/stunaddr=/c\\stunaddr=stun.l.google.com:19302" /etc/asterisk/rtp.conf
+sed -i "/; stunaddr=/c\\stunaddr=stun.l.google.com:19302" /etc/asterisk/rtp.conf
 sed -i 's/;enabled=yes/enabled=yes/' /etc/asterisk/http.conf
 sed -i 's/;tlsenable=yes/tlsenable=yes/' /etc/asterisk/http.conf
 sed -i 's/;tlsbindaddr=0.0.0.0:8089/tlsbindaddr=0.0.0.0:8089/' /etc/asterisk/http.conf
 sed -i "/tlscertfile=/c\\tlscertfile=/etc/apache2/ssl.crt/vicibox.crt" /etc/asterisk/http.conf
 sed -i "/tlsprivatekey=/c\\tlsprivatekey=/etc/apache2/ssl.key/vicibox.key" /etc/asterisk/http.conf
+
+# Setup PJSIP
+sed -i "s/^external_media_address.*=.*/external_media_address          = SERVER_EXTERNAL_IP/" /etc/asterisk/pjsip.conf
+sed -i "s/^external_signaling_address.*=.*/external_signaling_address      = SERVER_EXTERNAL_IP/" /etc/asterisk/pjsip.conf
+if [ "$1" == "0" ]; then
+	/usr/share/vicibox/vici-pjsip.sh
+fi

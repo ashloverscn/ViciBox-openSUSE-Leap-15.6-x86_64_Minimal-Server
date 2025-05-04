@@ -1,0 +1,271 @@
+#!/bin/bash
+
+# File locations in case you want to modify things
+ASTGUICLIENT="/etc/astguiclient.conf"
+ASTERISK_CONF="/etc/asterisk/http.conf"
+APACHE_CONF="/etc/apache2/vhosts.d/0000-default-ssl.conf"
+DYNPORTAL_CONF="/etc/apache2/vhosts.d/dynportal-ssl.conf"
+WEBDIR="/srv/www/htdocs/"
+ACME_DIR="/root/.acme.sh/"
+ACME_BIN="acme.sh"
+ACME_RENEWAL="acme-renew.sh"
+APACHE_CONF="/etc/apache2/vhosts.d/0000-default-ssl.conf"
+
+# If we don't have new config files, look for old ones from ViciBox v.10 and before
+if [[ ! -f $APACHE_CONF ]]; then
+	if [[ -f "/etc/apache2/vhosts.d/1111-default-ssl.conf" ]]; then
+		APACHE_CONF="/etc/apache2/vhosts.d/1111-default-ssl.conf"
+	else
+		echo "Apache config file not found at: $APACHE_CONF"
+	fi
+fi
+
+# Check to see if this is the first time we've run, if so setup acme.sh for local user
+if [[ ! -d $ACME_DIR ]]; then
+	mkdir -p $ACME_DIR
+	# Use OS-supplied acme.sh if found, otherwise use bundled acme.sh
+	if [[ -x "/usr/share/acme.sh/$ACME_BIN" ]]; then
+		ln -sf /usr/share/acme.sh/$ACME_BIN /root/.acme.sh/
+		if [ -d "/usr/share/acme.sh/deploy" ]; then ln -sf /usr/share/acme.sh/deploy /root/.acme.sh/; fi
+        if [ -d "/usr/share/acme.sh/dnsapi" ]; then ln -sf /usr/share/acme.sh/dnsapi /root/.acme.sh/; fi
+        if [ -d "/usr/share/acme.sh/notify" ]; then ln -sf /usr/share/acme.sh/notify /root/.acme.sh/; fi
+	else
+		ln -sf /usr/share/vicibox-ssl/$ACME_BIN /root/.acme.sh/
+	fi
+	/root/.acme.sh/acme.sh --set-default-ca --server letsencrypt > /dev/null
+fi
+
+# File Checks
+if [[ ! -x $ACME_DIR/$ACME_BIN ]]; then
+	echo "  acme.sh not installed at $ACME_DIR"
+	exit 1
+fi
+if [[ ! -d $WEBDIR ]]; then
+	echo "  Web directory not found at $WEBDIR"
+	exit 1
+fi
+if [[ ! -f $ASTGUICLIENT ]]; then
+	echo "  Vicidial config not found at $ASTGUICLIENT"
+	exit 1
+fi
+
+# Get info so we can make DB updates
+SERVER_IP=`cat /etc/astguiclient.conf | grep VARserver_ip | cut -d ">" -f2- | tr -d '[:space:]'`
+DB_HOST=`cat /etc/astguiclient.conf | grep VARDB_server | cut -d ">" -f2- | tr -d '[:space:]'`
+DB_USER=`cat /etc/astguiclient.conf | grep VARDB_user | cut -d ">" -f2- | tr -d '[:space:]'`
+DB_PASS=`cat /etc/astguiclient.conf | grep VARDB_pass | cut -d ">" -f2- | tr -d '[:space:]'`
+DB_PORT=`cat /etc/astguiclient.conf | grep VARDB_port | cut -d ">" -f2- | tr -d '[:space:]'`
+DB_NAME=`cat /etc/astguiclient.conf | grep VARDB_database | cut -d ">" -f2- | tr -d '[:space:]'`
+
+echo
+echo "ViciBox free SSL set-up script"
+echo
+
+# Make sure Apache is running before attempting SSL setup
+service apache2 status >/dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+	echo -n "  Apache not running, starting... "
+	service apache2 start >/dev/null 2>&1
+
+	if [[ $? -ne 0 ]]; then
+	echo "  Apache is not running or failed to start! Lets Encrypt will not work without a"
+	echo "  running web server. Please start Apache by running 'service apache2 start'"
+	echo "  and verify that you can access ViciDial normally through the Fully Qualified"
+	echo "  Domain Name of this server. Cerbot will not work until Apache and a FQDN are"
+	echo "  properly working on this server."
+	echo
+	exit 1
+	else
+	echo "done."
+	fi
+fi
+
+echo
+echo "  Please make sure you have a Fully Qualified Domain Name pointed at this server."
+echo "  For example, if the FQDN of this server was 'vicibox.vicidial.com' and was"
+echo "  properly directed at this server you should be able to log into vicidial at"
+echo "  http://vicibox.vicidial.com"
+echo
+echo
+echo -n "  What is your EMail address : "
+read EMAIL
+echo -n "  What is your Fully Qualified Domain Name (FQDN) : "
+read FQDN
+
+# Verify that the FQDN comes back to this server
+SERVERIP=`dig +short $FQDN`
+REMOTEIP=$(wget http://www.vicidial.org/yourip.php -q -O -)
+if [[ "$SERVERIP" != "$REMOTEIP" ]]; then
+	echo "  The Server IP ($SERVERIP) and the detected remote IP ($REMOTEIP)" 
+	echo "  do not match! This will cause the SSL certificate challenge to fail"
+	echo "  authentication. Please double check that your FQDN matches your IP."
+	echo
+	echo "  Do you want to continue with the SSL setup? (N/y) : "
+	read PROMPT
+	if [ "${PROMPT,,}" != "y" ]; then
+		exit 1
+	fi
+fi
+
+echo
+echo
+echo "   E-Mail : $EMAIL"
+echo "     FQDN : $FQDN"
+echo
+
+echo -n "  Do you want to generate an SSL certificate now? (N/y) : "
+read PROMPT
+if [ "${PROMPT,,}" == "y" ]; then
+	$ACME_DIR/$ACME_BIN -d $FQDN --email $EMAIL --issue --webroot $WEBDIR
+	# acme.sh is shipping to FQDN_ecc for some reason, so lets do the fixup for that.
+	if [[ -d "$ACME_DIR/$FQDN""_ecc" ]]; then
+        echo "Doing fixup for acme.sh _ecc weirdness!"
+		ACME_BUGDIR="$ACME_DIR/$FQDN""_ecc"
+		mv $ACME_BUGDIR $ACME_DIR/$FQDN
+	fi
+
+	
+	if [ $? != 0 ]; then
+		echo
+		echo "  acme.sh was unable to verify your FQDN reaches this server and was unable"
+		echo "  to generate a valid SSL certificate. Please check your firewall settings,"
+		echo "  DNS entries, and Apache for any possible issues. You can re-run this script"
+		echo "  to test if the issue is resolved."
+		exit 1;
+	else
+		echo
+		echo "  acme.sh successfully authenticated and generated an SSL certificate."
+		# Generate filepaths for SSL certs
+		SSLCERT=$ACME_DIR/$FQDN/$FQDN.cer
+		SSLCERTFULL=$ACME_DIR/$FQDN/fullchain.cer
+		SSLKEY=$ACME_DIR/$FQDN/$FQDN.key
+		SSLCA=$ACME_DIR/$FQDN/ca.cer
+	fi
+else
+	echo
+	echo "  Please run 'acme.sh -d $FQDN --email $EMAIL --issue --webroot $WEBDIR' and verify that you can successfully"
+	echo "  generate an SSL certificate. Once an SSL certificate is generated, you will need"
+	echo "  to modify the following configs :"
+	echo "    Apache   : $APACHE_CONF"
+	echo "    Asterisk : $ASTERISK_CONF"
+	exit
+fi
+
+# Tie apache to our SSL if things went well-known
+echo
+echo -n "  Do you want to enable the new SSL certificate in Apache/Asterisk? (N/y) : "
+read PROMPT
+
+if [ "${PROMPT,,}" == "y" ]; then
+	
+	if [[ -f $ASTERISK_CONF ]]; then
+		echo
+		echo -n "    Enabling SSL certificate in Asterisk... "
+		sed -i "/tlscertfile=/c\\tlscertfile=$SSLCERTFULL" $ASTERISK_CONF
+		sed -i "/tlsprivatekey=/c\\tlsprivatekey=$SSLKEY" $ASTERISK_CONF
+		echo "done."
+		if [ `pgrep "^asterisk$" |wc -l` -gt 0 ]; then
+			echo -n "    Reloading Asterisk http module... "
+			/usr/sbin/rasterisk -x 'module reload http'
+			echo "done."
+		fi
+	else
+		echo "    Asterisk config file not found at $ASTERISK_CONF"
+	fi
+	
+	if [[ -f $APACHE_CONF ]]; then
+		echo -n "    Enabling SSL certificate in Apache... "
+		sed -i "/SSLCertificateFile/c\\\tSSLCertificateFile $SSLCERT" $APACHE_CONF
+		sed -i "/SSLCertificateKeyFile/c\\\tSSLCertificateKeyFile $SSLKEY" $APACHE_CONF
+		sed -i "/SSLCACertificateFile/c\\\tSSLCACertificateFile $SSLCA" $APACHE_CONF
+		if [ -f $DYNPORTAL_CONF ]; then
+			sed -i "/SSLCertificateFile/c\\\tSSLCertificateFile $SSLCERT" $DYNPORTAL_CONF
+			sed -i "/SSLCertificateKeyFile/c\\\tSSLCertificateKeyFile $SSLKEY" $DYNPORTAL_CONF
+			sed -i "/SSLCACertificateFile/c\\\tSSLCACertificateFile $SSLCA" $DYNPORTAL_CONF
+		fi
+		echo "done."
+
+		echo
+		echo -n "  Do you want to redirect all traffic to HTTPS? (N/y) : "
+		read PROMPT
+
+		if [ "${PROMPT,,}" == "y" ]; then
+			sed -i 's/#Rewrite/Rewrite/g' /etc/apache2/vhosts.d/0000-default.conf
+		fi
+
+		service apache2 status >/dev/null 2>&1
+		if [[ $? -eq 0 ]]; then
+			echo -n "    Reloading apache configuration... "
+			/sbin/service apache2 restart
+			echo "done."
+		fi
+	else
+		echo "    Apache config file not found at $APACHE_CONF"
+	fi
+
+	echo -n "    Making changes to ViciDial... "
+	mysql -u $DB_USER -p$DB_PASS $DB_NAME --execute="update servers set web_socket_url='wss://$FQDN:8089/ws' where server_ip='$SERVER_IP';"
+	mysql -u $DB_USER -p$DB_PASS $DB_NAME --execute="insert into vicidial_conf_templates (template_id, template_name, template_contents) values ('$HOSTNAME-RTC', 'WebRTC template for $fqdn', 'type=friend\r\nhost=dynamic\r\nencryption=yes\r\navpf=yes\r\nicesupport=yes\r\ndirectmedia=no\r\ntransport=wss\r\nforce_avp=yes\r\ndtlsenable=yes\r\ndtlsverify=no\r\ndtlscertfile=$SSLCERT\r\ndtlsprivatekey=$SSLKEY\r\ndtlssetup=actpass\r\nrtcp_mux=yes');"
+	echo " done."
+
+	# Symlink the vicibox certs to our specific certs for generic VICIPhone template
+	if [[ -f "/etc/apache2/ssl.crt/vicibox.crt" ]]; then mv /etc/apache2/ssl.crt/vicibox.crt /etc/apache2/ssl.crt/vicibox.crt.old; fi
+	ln -sf $SSLCERT /etc/apache2/ssl.crt/vicibox.crt
+	if [[ -f "/etc/apache2/ssl.key/vicibox.key" ]]; then mv /etc/apache2/ssl.key/vicibox.key /etc/apache2/ssl.key/vicibox.key.old; fi
+	ln -sf $SSLKEY /etc/apache2/ssl.key/vicibox.key	
+else
+	echo
+	echo "  You will need to enable the SSL certificates in the following files:"
+	echo "    Apache   : $APACHE_CONF"
+	echo "    Asterisk : $ASTERISK_CONF"
+	echo
+	echo "  done."
+fi
+
+echo
+echo "  The SSL certificate is installed. The SSL certificate is valid for up to 90"
+echo "  days. After that time it will need to be re-generated by running :"
+echo "    /root/.acme.sh/acme.sh --renew-all"
+echo
+
+# Add SSL renewal to the cron only if it's not already in there somewhere
+if ! crontab -l | grep acme-renew.sh > /dev/null; then
+	echo "  It is recommended to have the cert generation done weekly via a crontab"
+	echo "  entry like this:"
+	echo
+	echo "    ### Renew certificate every sunday at midnight"
+	echo "    0 0 * * 0 /usr/share/vicibox-ssl/acme-renew.sh"
+	echo
+	echo -n "  Do you want to add this to the crontab now? (N/y) : "
+	read PROMPT
+
+	if [ "${PROMPT,,}" == "y" ]; then
+		echo -n "    Adding acme-renew.sh to crontab... "
+		crontab -l > /tmp/rootcronold
+		echo '' >> /tmp/rootcron
+		echo "### Renew SSL certificate every sunday at midnight" >> /tmp/rootcron
+		echo "0 0 * * 0 /usr/share/vicibox-ssl/acme-renew.sh" >> /tmp/rootcron
+		crontab /tmp/rootcron
+		echo "done."
+	fi
+else
+	echo "  It looks like acme-renew.sh is already in the crontab, skipping setup."
+fi
+
+
+echo
+echo "  The free SSL set-up is complete!"
+echo
+echo "  If this is a telephony server you will need to modify the 'Web Socket URL'"
+echo "  field for this server under the Admin --> Servers section. It will need to be"
+echo "  changed to :"
+echo "    wss://$FQDN:8089/ws"
+echo
+echo "  You will also need to modify the 'webRTC' template if it exists under the"
+echo "  Admin --> Templates section. You want to change the following options under the"
+echo "  'Template Contents' :"
+echo "    tlscertfile=$SSLCERT"
+echo "    tlsprivatekey=$SSLKEY"
+echo
+echo "  If this is a web server, you can force all connections to SSL by editing"
+echo "  $APACHE_CONF and uncommenting the rewrite section.\n"
