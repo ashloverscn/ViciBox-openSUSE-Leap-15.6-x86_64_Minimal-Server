@@ -58,11 +58,11 @@ zypper rr --all
 mv /etc/apache2/ /etc/apache2.bak/
 mv /etc/my.cnf.d/ /etc/my.cnf.d.bak/
 mv /etc/php7/ /etc/php7.bak/
+mv /etc/php8/ /etc/php8.bak/
 
 \cp -r /usr/src/etc/* /etc/
 \cp -r /usr/src/usr/* /usr/
 \cp -r /usr/src/srv/* /srv/
-mv /etc/php8/ /etc/php8.bak/
 
 zypper --gpg-auto-import-keys ref
 
