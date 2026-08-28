@@ -1,8 +1,0 @@
-[openSUSE-Leap-15.6-ViciDial]
-enabled = 1
-autorefresh = 1
-baseurl = https://download.opensuse.org/repositories/home:/vicidial/15.6/
-keeppackages = 1
-repo_gpgcheck = 0
-pkg_gpgcheck = 0
-
