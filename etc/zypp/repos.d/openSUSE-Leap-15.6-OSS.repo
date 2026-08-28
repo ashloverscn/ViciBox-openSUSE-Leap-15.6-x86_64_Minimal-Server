@@ -1,8 +1,0 @@
-[openSUSE-Leap-15.6-OSS]
-enabled = 1
-autorefresh = 1
-baseurl = https://download.opensuse.org/update/leap/15.6/oss
-keeppackages = 1
-repo_gpgcheck = 0
-pkg_gpgcheck = 0
-
