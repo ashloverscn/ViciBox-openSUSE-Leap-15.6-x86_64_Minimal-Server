@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# Defaults
+RTP_IP=$(wget http://www.vicidial.org/yourip.php -q -O -)
+ME=`basename "$0"`
+
+# Get the current RTP IP for feedback
+EXTERNIP=`cat /etc/asterisk/sip.conf | grep 'externip ='`
+OIFS=$IFS
+IFS='='
+read -a EXTERNIPARR <<< "$EXTERNIP"
+RTP_IP_PRE=${EXTERNIPARR[1]};
+IFS=';'
+read -a NOCOMMENTARR <<< "$RTP_IP_PRE"
+RTP_IP_PRE=${NOCOMMENTARR[0]};
+IFS=$OIFS
+
+# Usage and generic feedback
+echo
+echo "  This will change the Asterisk RTP IP address in sip.conf"
+echo "  Usage is: $ME <New-RTP-IP>"
+echo
+echo "    Current RTP Media IP: $RTP_IP_PRE"
+
+# State our intentions
+if [ ! -z $1 ]; then
+        RTP_IP=$1
+	echo "    New RTP Media IP: $RTP_IP"
+else
+	echo "    New RTP Media IP not provided, autodetected: $RTP_IP"
+fi
+echo
+
+# Point of no return for the user
+read -r -p "    Do you want to continue? [y/N] " response
+if [[ ! "${response,,}" =~ ^(yes|y)$ ]]; then
+	exit 3
+fi
+
+# Do the work
+sed -i "/externip =/c\externip = $RTP_IP" /etc/asterisk/sip.conf
+
+# post-op feedback
+EXTERNIP=`cat /etc/asterisk/sip.conf | grep 'externip ='`
+echo
+echo "  /etc/asterisk/sip.conf updated to: $EXTERNIP"
+echo -n "  Reloading sip.conf in Asterisk... "
+asterisk -rx "sip reload"
+echo "done."
+echo
