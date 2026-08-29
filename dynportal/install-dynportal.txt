@@ -6,7 +6,10 @@ mkdir -p /srv/www/htdocs/vicidial
 \cp -r logout.php /srv/www/htdocs/vicidial/
 
 \cp -r listen.conf /etc/apache2/
-\cp -r *.conf /etc/apache2/vhosts.d/
+\cp -r 0000-default.conf /etc/apache2/vhosts.d/
+\cp -r 0000-default-ssl.conf /etc/apache2/vhosts.d/
+\cp -r dynportal.conf /etc/apache2/vhosts.d/
+\cp -r dynportal-ssl.conf /etc/apache2/vhosts.d/
 
 systemctl restart apache2
 
