@@ -3,10 +3,10 @@ sudo sed -i 's/^SELINUX=.*/SELINUX=disabled/' /etc/selinux/config
 
 cd /usr/src/dynportal
 
-\cp -r dynportal /var/www/html/
-mkdir -p /var/www/html/vicidial
-\cp -r welcome.php /var/www/html/vicidial/
-\cp -r logout.php /var/www/html/vicidial/
+\cp -r dynportal /srv/www/vhosts
+mkdir -p /srv/www/htdocs/vicidial
+\cp -r welcome.php /srv/www/htdocs/vicidial/
+\cp -r logout.php /srv/www/htdocs/vicidial/
 
 \cp -r *.conf /etc/httpd/conf.d/
 
