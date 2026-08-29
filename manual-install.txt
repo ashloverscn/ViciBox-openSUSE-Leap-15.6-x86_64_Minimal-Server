@@ -138,6 +138,39 @@ cd ~
 systemctl restart apache2.service
 
 ############ here the installation is complete ###############
+# some fix #
+#!/bin/bash
+set -e
+
+echo "==> 1. Injecting 'ServerName localhost' into /etc/apache2/httpd.conf..."
+if ! grep -q "^ServerName" /etc/apache2/httpd.conf; then
+    echo "ServerName localhost" >> /etc/apache2/httpd.conf
+    echo "--> ServerName added."
+else
+    echo "--> ServerName already exists in httpd.conf."
+fi
+
+echo "==> 2. Adding 'SSL' flag to APACHE_SERVER_FLAGS in /etc/sysconfig/apache2..."
+if grep -q 'APACHE_SERVER_FLAGS="phpMyAdmin"' /etc/sysconfig/apache2; then
+    sed -i 's/APACHE_SERVER_FLAGS="phpMyAdmin"/APACHE_SERVER_FLAGS="phpMyAdmin SSL"/g' /etc/sysconfig/apache2
+    echo "--> SSL flag added successfully."
+elif grep -q 'APACHE_SERVER_FLAGS=".*SSL.*"' /etc/sysconfig/apache2; then
+    echo "--> SSL flag is already present."
+else
+    # Generic fallback if flags differ
+    sed -i 's/^APACHE_SERVER_FLAGS="\(.*\)"/APACHE_SERVER_FLAGS="\1 SSL"/' /etc/sysconfig/apache2
+    echo "--> SSL flag appended to APACHE_SERVER_FLAGS."
+fi
+
+echo "==> 3. Testing Apache configuration syntax..."
+apache2ctl configtest
+
+echo "==> 4. Restarting Apache service..."
+systemctl restart apache2
+
+echo "==> 5. Verifying active listening ports for 443 and 446..."
+ss -tuln | grep -E ':443|:446' || echo "WARNING: Ports 443 and 446 are not listening yet."
+
 ##############################################################
 cd /usr/src
 mysql -uroot asterisk < backup_complete_settings.sql
