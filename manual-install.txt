@@ -123,6 +123,10 @@ modprobe dahdi
 systemctl restart dahdi.service
 
 ################################################################
+mkdir -p /var/lib/mysql
+ln -s /run/mysql/mysql.sock /var/lib/mysql/mysql.sock
+
+################################################################
 vicibox-express
 
 ################################################################
