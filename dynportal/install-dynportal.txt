@@ -1,6 +1,3 @@
-sudo setenforce 0
-sudo sed -i 's/^SELINUX=.*/SELINUX=disabled/' /etc/selinux/config
-
 cd /usr/src/dynportal
 
 \cp -r dynportal /srv/www/vhosts
@@ -11,13 +8,7 @@ mkdir -p /srv/www/htdocs/vicidial
 \cp -r listen.conf /etc/apache2/
 \cp -r *.conf /etc/apache2/vhosts.d/
 
-sudo mkdir -p /etc/apache2/ssl.key /etc/apache2/ssl.crt
-sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout /etc/apache2/ssl.key/vicibox.key \
-    -out /etc/apache2/ssl.crt/vicibox.crt \
-    -subj "/C=US/ST=State/L=City/O=Organization/CN=almalinux"
-
-systemctl restart httpd
+systemctl restart apache2
 
 sudo systemctl enable --now firewalld
 sudo firewall-cmd --state
