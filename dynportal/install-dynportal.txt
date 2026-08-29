@@ -13,6 +13,11 @@ mkdir -p /srv/www/htdocs/vicidial
 
 systemctl restart apache2
 
+sudo systemctl stop firewalld
+sudo zypper remove --clean-deps firewalld
+sudo rm -rf /etc/firewalld /var/lib/firewalld
+sudo zypper refresh
+sudo zypper install -y firewalld
 sudo systemctl enable --now firewalld
 sudo firewall-cmd --state
 
