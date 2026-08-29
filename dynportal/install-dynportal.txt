@@ -8,20 +8,17 @@ mkdir -p /srv/www/htdocs/vicidial
 \cp -r welcome.php /srv/www/htdocs/vicidial/
 \cp -r logout.php /srv/www/htdocs/vicidial/
 
-\cp -r *.conf /etc/httpd/conf.d/
+\cp -r listen.conf /etc/apache2/
+\cp -r *.conf /etc/apache2/vhosts.d/
 
-sudo mkdir -p /etc/httpd/ssl.key /etc/httpd/ssl.crt
+sudo mkdir -p /etc/apache2/ssl.key /etc/apache2/ssl.crt
 sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout /etc/httpd/ssl.key/vicibox.key \
-    -out /etc/httpd/ssl.crt/vicibox.crt \
+    -keyout /etc/apache2/ssl.key/vicibox.key \
+    -out /etc/apache2/ssl.crt/vicibox.crt \
     -subj "/C=US/ST=State/L=City/O=Organization/CN=almalinux"
 
 systemctl restart httpd
 
-sudo systemctl stop firewalld
-sudo dnf remove -y firewalld
-sudo rm -rf /etc/firewalld /var/lib/firewalld
-sudo dnf install -y firewalld
 sudo systemctl enable --now firewalld
 sudo firewall-cmd --state
 
