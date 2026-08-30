@@ -165,10 +165,13 @@ fi
 echo "==> 3. Testing Apache configuration syntax..."
 apache2ctl configtest
 
-echo "==> 4. Restarting Apache service..."
+echo "==> 4. Set SSL Rewrite..."
+a2enmod rewrite
+
+echo "==> 5. Restarting Apache service..."
 systemctl restart apache2
 
-echo "==> 5. Verifying active listening ports for 443 and 446..."
+echo "==> 6. Verifying active listening ports for 443 and 446..."
 ss -tuln | grep -E ':443|:446' || echo "WARNING: Ports 443 and 446 are not listening yet."
 
 ##############################################################
